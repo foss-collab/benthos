@@ -334,12 +334,16 @@ func TestLinesReader(t *testing.T) {
 }
 
 func TestCSVReader(t *testing.T) {
-	data := []byte("col1,col2,col3\nfoo1,bar1,baz1\nfoo2,bar2,baz2\nfoo3,bar3,baz3")
+	data := []byte(`col1,col2,col3
+foo1,bar 1","baz1"
+foo2,bar 2","baz2"
+foo3,bar 3","baz3"`)
+
 	testReaderSuite(
 		t, "csv", "", data,
-		`{"col1":"foo1","col2":"bar1","col3":"baz1"}`,
-		`{"col1":"foo2","col2":"bar2","col3":"baz2"}`,
-		`{"col1":"foo3","col2":"bar3","col3":"baz3"}`,
+		`{"col1":"foo1","col2":"bar 1\"","col3":"baz1"}`,
+		`{"col1":"foo2","col2":"bar 2\"","col3":"baz2"}`,
+		`{"col1":"foo3","col2":"bar 3\"","col3":"baz3"}`,
 	)
 
 	data = []byte("col1,col2,col3")
