@@ -36,6 +36,7 @@ func init() {
 			docs.FieldCommon("parse_header_row", "Whether to reference the first row as a header row. If set to true the output structure for messages will be an object where field keys are determined by the header row."),
 			docs.FieldCommon("delimiter", `The delimiter to use for splitting values in each record, must be a single character.`),
 			docs.FieldAdvanced("batch_count", `Optionally process records in batches. This can help to speed up the consumption of exceptionally large CSV files. When the end of the file is reached the remaining records are processed as a (potentially smaller) batch.`),
+			docs.FieldAdvanced("lazy_quotes", `If true, a quote may appear in an unquoted field and a non-doubled quote may appear in a quoted field.`),
 		},
 		Description: `
 This input offers more control over CSV parsing than the ` + "[`file` input](/docs/components/inputs/file)" + `.
@@ -80,6 +81,7 @@ type CSVFileConfig struct {
 	ParseHeaderRow bool     `json:"parse_header_row" yaml:"parse_header_row"`
 	Delim          string   `json:"delimiter" yaml:"delimiter"`
 	BatchCount     int      `json:"batch_count" yaml:"batch_count"`
+	LazyQuotes     bool     `json:"lazy_quotes" yaml:"lazy_quotes"`
 }
 
 // NewCSVFileConfig creates a new CSVFileConfig with default values.
@@ -89,6 +91,7 @@ func NewCSVFileConfig() CSVFileConfig {
 		ParseHeaderRow: true,
 		Delim:          ",",
 		BatchCount:     1,
+		LazyQuotes:     false,
 	}
 }
 
@@ -134,6 +137,7 @@ func NewCSVFile(conf Config, mgr interop.Manager, log log.Modular, stats metrics
 		optCSVSetComma(comma),
 		optCSVSetExpectHeaders(conf.CSVFile.ParseHeaderRow),
 		optCSVSetGroupCount(conf.CSVFile.BatchCount),
+		optSetLazyQuotes(conf.CSVFile.LazyQuotes),
 	)
 	if err != nil {
 		return nil, err
@@ -144,7 +148,7 @@ func NewCSVFile(conf Config, mgr interop.Manager, log log.Modular, stats metrics
 
 //------------------------------------------------------------------------------
 
-// csvReader is an reader. implementation that consumes an io.Reader and parses
+// csvReader is a reader implementation that consumes an io.Reader and parses
 // it as a CSV file.
 type csvReader struct {
 	handleCtor func(ctx context.Context) (io.Reader, error)
@@ -159,9 +163,10 @@ type csvReader struct {
 	comma         rune
 	strict        bool
 	groupCount    int
+	lazyQuotes    bool
 }
 
-// NewCSV creates a new reader input type able to create a feed of line
+// newCSVReader creates a new reader input type able to create a feed of line
 // delimited CSV records from an io.Reader.
 //
 // Callers must provide a constructor function for the target io.Reader, which
@@ -184,6 +189,7 @@ func newCSVReader(
 		expectHeaders: true,
 		strict:        false,
 		groupCount:    1,
+		lazyQuotes:    false,
 	}
 
 	for _, opt := range options {
@@ -227,6 +233,14 @@ func optCSVSetStrict(strict bool) func(r *csvReader) {
 	}
 }
 
+// optSetLazyQuotes is an option func that determines quote may appear in an unquoted field and a
+// non-doubled quote may appear in a quoted field.
+func optSetLazyQuotes(enabled bool) func(r *csvReader) {
+	return func(r *csvReader) {
+		r.lazyQuotes = enabled
+	}
+}
+
 //------------------------------------------------------------------------------
 
 func (r *csvReader) closeHandle() {
@@ -259,6 +273,7 @@ func (r *csvReader) ConnectWithContext(ctx context.Context) error {
 	scanner := csv.NewReader(handle)
 	scanner.Comma = r.comma
 	scanner.ReuseRecord = true
+	scanner.LazyQuotes = r.lazyQuotes
 
 	r.scanner = scanner
 	r.handle = handle

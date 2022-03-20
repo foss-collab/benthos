@@ -350,6 +350,54 @@ func TestCSVReaderCustomComma(t *testing.T) {
 	assert.Equal(t, component.ErrTypeClosed, err)
 }
 
+func TestCSVReaderLazyQuotes(t *testing.T) {
+	var handle bytes.Buffer
+
+	for _, msg := range []string{
+		`header1,header2,header3`,
+		"foo1,foo 2\",\"foo3\"",
+		"bar1,bar 2\",\"bar3\"",
+		"baz1,baz 2\",\"baz3\"",
+	} {
+		handle.Write([]byte(msg))
+		handle.Write([]byte("\n"))
+	}
+
+	ctored := false
+	f, err := newCSVReader(
+		func(ctx context.Context) (io.Reader, error) {
+			if ctored {
+				return nil, io.EOF
+			}
+			ctored = true
+			return &handle, nil
+		},
+		func(ctx context.Context) {},
+		optSetLazyQuotes(true),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, f.ConnectWithContext(context.Background()))
+
+	for _, exp := range []string{
+		`{"header1":"foo1","header2":"foo 2\"","header3":"foo3"}`,
+		`{"header1":"bar1","header2":"bar 2\"","header3":"bar3"}`,
+		`{"header1":"baz1","header2":"baz 2\"","header3":"baz3"}`,
+	} {
+		var resMsg *message.Batch
+		resMsg, _, err = f.ReadWithContext(context.Background())
+		require.NoError(t, err)
+
+		assert.Equal(t, exp, string(resMsg.Get(0).Get()))
+	}
+
+	_, _, err = f.ReadWithContext(context.Background())
+	assert.Equal(t, component.ErrNotConnected, err)
+
+	err = f.ConnectWithContext(context.Background())
+	assert.Equal(t, component.ErrTypeClosed, err)
+}
+
 func TestCSVReaderRelaxed(t *testing.T) {
 	var handle bytes.Buffer
 
